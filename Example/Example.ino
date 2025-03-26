@@ -20,7 +20,7 @@
 
 #define UPDATE_RATE           150
 
-ControllerPtr myControllers[BP32_MAX_GAMEPADS];
+ControllerPtr myControllers;
 
 void onConnectedController(ControllerPtr ctl);
 void onDisconnectedController(ControllerPtr ctl);
@@ -57,9 +57,6 @@ void processGamepad(ControllerPtr ctl) {
       digitalWrite(MOTOR_2_B,HIGH);
       analogWrite(MOTOR_1_PWM,(ctl->throttle() >> 3) - (ctl-> axisX() >> 2));
       analogWrite(MOTOR_2_PWM,(ctl->throttle() >> 3) + (ctl-> axisX() >> 2));
-      #ifdef DEBUG_MODE_ENABLED
-        printf("Shift Throttle Val %d, Shifted axisVal %d, PWM drive value %d \n",ctl->throttle() >> 3,ctl-> axisX() >> 2,(ctl->throttle() >> 3) + (ctl-> axisX() >> 2));
-      #endif
     } else {
       #ifdef DEBUG_MODE_ENABLED
         Serial.println("STOP");
@@ -109,22 +106,19 @@ void loop() {
 
 void onConnectedController(ControllerPtr ctl) {
     bool foundEmptySlot = false;
-    for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
-        if (myControllers[i] == nullptr) {
-            #ifdef DEBUG_MODE_ENABLED
-              Serial.printf("CALLBACK: Controller is connected, index=%d\n", i);
-            #endif
-            // Additionally, you can get certain gamepad properties like:
-            // Model, VID, PID, BTAddr, flags, etc.
-            ControllerProperties properties = ctl->getProperties();
-            #ifdef DEBUG_MODE_ENABLED
-              Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
-                             properties.product_id);
-            #endif
-            myControllers[i] = ctl;
-            foundEmptySlot = true;
-            break;
-        }
+    if (myControllers == nullptr) {
+        #ifdef DEBUG_MODE_ENABLED
+          Serial.printf("CALLBACK: Controller is connected");
+        #endif
+        // Additionally, you can get certain gamepad properties like:
+        // Model, VID, PID, BTAddr, flags, etc.
+        ControllerProperties properties = ctl->getProperties();
+        #ifdef DEBUG_MODE_ENABLED
+          Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
+                          properties.product_id);
+        #endif
+        myControllers = ctl;
+        foundEmptySlot = true;
     }
     if (!foundEmptySlot) {
         #ifdef DEBUG_MODE_ENABLED
@@ -136,15 +130,12 @@ void onConnectedController(ControllerPtr ctl) {
 void onDisconnectedController(ControllerPtr ctl) {
     bool foundController = false;
 
-    for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
-        if (myControllers[i] == ctl) {
-            #ifdef DEBUG_MODE_ENABLED
-              Serial.printf("CALLBACK: Controller disconnected from index=%d\n", i);
-            #endif
-            myControllers[i] = nullptr;
-            foundController = true;
-            break;
-        }
+    if (myControllers == ctl) {
+        #ifdef DEBUG_MODE_ENABLED
+          Serial.printf("CALLBACK: Controller disconnected");
+        #endif
+        myControllers = nullptr;
+        foundController = true;
     }
 
     if (!foundController) {
@@ -155,15 +146,13 @@ void onDisconnectedController(ControllerPtr ctl) {
 }
 
 void processControllers() {
-    for (auto myController : myControllers) {
-        if (myController && myController->isConnected() && myController->hasData()) {
-            if (myController->isGamepad()) {
-                processGamepad(myController);
-            } else {
-              #ifdef DEBUG_MODE_ENABLED
-                Serial.println("Unsupported controller");
-              #endif
-            }
+    if (myControllers && myControllers->isConnected() && myControllers->hasData()) {
+        if (myControllers->isGamepad()) {
+            processGamepad(myControllers);
+        } else {
+          #ifdef DEBUG_MODE_ENABLED
+            Serial.println("Unsupported controller");
+          #endif
         }
     }
 }
