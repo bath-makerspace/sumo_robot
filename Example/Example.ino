@@ -1,3 +1,5 @@
+
+
 /*
 **  Author: Ian-Lim-Collab
 **  Date : 30th Jan 2025
@@ -8,19 +10,44 @@
 
 #include <Bluepad32.h>
 
-#define MOTOR_1_PWM           14
+// #define MOTOR_1_PWM           14
 #define MOTOR_1_A             26
 #define MOTOR_1_B             27
 
-#define MOTOR_2_PWM           32
+// #define MOTOR_2_PWM           32
 #define MOTOR_2_A             33
 #define MOTOR_2_B             25
 
+
 #define DEBUG_MODE_ENABLED
+// #define WAND_ENABLED
 
 #define UPDATE_RATE           150
 
+#define BUTTON_Y              8
+#define BUTTON_X              4
+#define BUTTON_B              2
+#define BUTTON_A              1
+
+#define MAX_PWM_VAL           255 // setup as 8bits pwm
+
+#ifdef WAND_ENABLED
+  #include <ESP32Servo.h>
+  #define WAND_PIN              16
+  #define MAX_SERVO_ANGLE       90
+  #define MIN_SERVO_ANGLE       90
+#endif
+
 ControllerPtr myControllers;
+
+#ifdef WAND_ENABLED
+  Servo wand;
+#endif 
+
+const uint8_t CONTROLLER_ADDR[6] = {0xAC,0x8E,0xBD,0x05,0xF8,0xD1};
+
+volatile int Motor1PwmVal = 0;
+volatile int Motor2PwmVal = 0;
 
 void onConnectedController(ControllerPtr ctl);
 void onDisconnectedController(ControllerPtr ctl);
@@ -29,14 +56,23 @@ void onDisconnectedController(ControllerPtr ctl);
 #endif
 
 void processGamepad(ControllerPtr ctl) {
+  #ifdef WAND_ENABLED
+    if(ctl->buttons() & BUTTON_A){
+      wand.write(MAX_SERVO_ANGLE);
+    } else{
+      wand.write(MIN_SERVO_ANGLE);
+    }
+  #endif
+  #ifdef DEBUG_MODE_ENABLED
+  if(ctl->buttons() & BUTTON_A){
+    Serial.println("Smack");
+  }
+  #endif
+
     if(ctl-> brake() > 0){
       #ifdef DEBUG_MODE_ENABLED
         Serial.println("BRAKE");
       #endif
-      digitalWrite(MOTOR_1_A,LOW);
-      digitalWrite(MOTOR_1_B,HIGH);
-      digitalWrite(MOTOR_2_A,HIGH);
-      digitalWrite(MOTOR_2_B,LOW);
       // PWM output range 0 to 255
       // Brake() 0 to 1023
       // axisX() -512 to 512 
@@ -45,28 +81,42 @@ void processGamepad(ControllerPtr ctl) {
       // Divide the axisX(1 sign bits + 9 bits,) by 4 to bring it down to 
       // 7 bits, 128
       // Sum the values for one wheel and subtract for the other for differential drive
-      analogWrite(MOTOR_1_PWM,(ctl->brake() >> 3) - (ctl-> axisX() >> 2));
-      analogWrite(MOTOR_2_PWM,(ctl->brake() >> 3) + (ctl-> axisX() >> 2));
+      
+      Motor1PwmVal = (ctl->buttons() & BUTTON_Y) ? (ctl->brake() >> 2) - (ctl-> axisX() >> 2)  : (ctl->brake() >> 3) - (ctl-> axisX() >> 2);
+      Motor2PwmVal = (ctl->buttons() & BUTTON_Y) ? (ctl->brake() >> 2) + (ctl-> axisX() >> 2)  : (ctl->brake() >> 3) + (ctl-> axisX() >> 2);
+      Motor1PwmVal = Motor1PwmVal > MAX_PWM_VAL ? MAX_PWM_VAL : Motor1PwmVal<0 ? 0 : Motor1PwmVal;
+      Motor2PwmVal = Motor2PwmVal > MAX_PWM_VAL ? MAX_PWM_VAL : Motor2PwmVal<0 ? 0 : Motor2PwmVal;
+      #ifdef DEBUG_MODE_ENABLED
+        Serial.printf("\n%d,%d,%d\n",(ctl->brake() >> 2),Motor1PwmVal,MAX_PWM_VAL);
+      #endif
+      
+      analogWrite(MOTOR_1_A,0);
+      analogWrite(MOTOR_1_B,Motor1PwmVal);
+      analogWrite(MOTOR_2_A,Motor2PwmVal);
+      analogWrite(MOTOR_2_B,0);
     }else if(ctl-> throttle() > 0){
       #ifdef DEBUG_MODE_ENABLED
         Serial.println("POWER");
       #endif
-      digitalWrite(MOTOR_1_A,HIGH);
-      digitalWrite(MOTOR_1_B, LOW);
-      digitalWrite(MOTOR_2_A, LOW);
-      digitalWrite(MOTOR_2_B,HIGH);
-      analogWrite(MOTOR_1_PWM,(ctl->throttle() >> 3) - (ctl-> axisX() >> 2));
-      analogWrite(MOTOR_2_PWM,(ctl->throttle() >> 3) + (ctl-> axisX() >> 2));
+      Motor1PwmVal = (ctl->buttons() & BUTTON_Y) ? (ctl->throttle() >> 2) - (ctl-> axisX() >> 2)  : (ctl->throttle() >> 3) - (ctl-> axisX() >> 2);
+      Motor2PwmVal = (ctl->buttons() & BUTTON_Y) ? (ctl->throttle() >> 2) + (ctl-> axisX() >> 2)  : (ctl->throttle() >> 3) + (ctl-> axisX() >> 2);
+      Motor1PwmVal = Motor1PwmVal > MAX_PWM_VAL ? MAX_PWM_VAL : Motor1PwmVal<0 ? 0 : Motor1PwmVal;
+      Motor2PwmVal = Motor2PwmVal > MAX_PWM_VAL ? MAX_PWM_VAL : Motor2PwmVal<0 ? 0 : Motor2PwmVal;
+
+      analogWrite(MOTOR_1_A,Motor1PwmVal);
+      analogWrite(MOTOR_1_B,0);
+      analogWrite(MOTOR_2_A,0);
+      analogWrite(MOTOR_2_B,Motor2PwmVal);
     } else {
       #ifdef DEBUG_MODE_ENABLED
         Serial.println("STOP");
       #endif
-      digitalWrite(MOTOR_1_A, LOW);
-      digitalWrite(MOTOR_1_B, LOW);
-      digitalWrite(MOTOR_2_A, LOW);
-      digitalWrite(MOTOR_2_B, LOW);
-      analogWrite(MOTOR_1_PWM,0);
-      analogWrite(MOTOR_2_PWM,0);
+      Motor1PwmVal = 0;
+      Motor2PwmVal = 0;
+      analogWrite(MOTOR_1_A,0);
+      analogWrite(MOTOR_1_B,0);
+      analogWrite(MOTOR_2_A,0);
+      analogWrite(MOTOR_2_B,0);
     }
     #ifdef DEBUG_MODE_ENABLED
       dumpGamepad(ctl);
@@ -88,12 +138,21 @@ void setup() {
   BP32.forgetBluetoothKeys();
   BP32.enableVirtualDevice(false);
 
-  pinMode(MOTOR_1_PWM,OUTPUT);
+  // pinMode(MOTOR_1_PWM,OUTPUT);
   pinMode(MOTOR_1_A,OUTPUT);
   pinMode(MOTOR_1_B,OUTPUT);
-  pinMode(MOTOR_2_PWM,OUTPUT);
+  // pinMode(MOTOR_2_PWM,OUTPUT);
   pinMode(MOTOR_2_A,OUTPUT);
   pinMode(MOTOR_2_B,OUTPUT);
+
+  #ifdef WAND_ENABLED
+    ESP32PWM::allocateTimer(0);
+    ESP32PWM::allocateTimer(1);
+    ESP32PWM::allocateTimer(2);
+    ESP32PWM::allocateTimer(3);
+    wand.setPeriodHertz(50);
+    wand.attach(WAND_PIN,1000,2000);
+  #endif 
 }
 
 void loop() {
@@ -108,15 +167,32 @@ void onConnectedController(ControllerPtr ctl) {
     bool foundEmptySlot = false;
     if (myControllers == nullptr) {
         #ifdef DEBUG_MODE_ENABLED
-          Serial.printf("CALLBACK: Controller is connected");
+          Serial.printf("CALLBACK: Controller is connected,");
         #endif
         // Additionally, you can get certain gamepad properties like:
         // Model, VID, PID, BTAddr, flags, etc.
         ControllerProperties properties = ctl->getProperties();
         #ifdef DEBUG_MODE_ENABLED
-          Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
-                          properties.product_id);
+          Serial.printf("model: %s, VID=0x%04x, PID=0x%04x, ADDR[%02X:%02X:%02X:%02X:%02X:%02X]\n", 
+              ctl->getModelName().c_str(), properties.vendor_id, properties.product_id, 
+              properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
+              properties.btaddr[3], properties.btaddr[4], properties.btaddr[5]);
+          // Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
+          //                 properties.product_id);
         #endif
+        for(int i =0 ; i < 6; i++){
+          if(properties.btaddr[i] != CONTROLLER_ADDR[i]){
+            #ifdef DEBUG_MODE_ENABLED
+              Serial.printf("Controller Address[%02X:%02X:%02X:%02X:%02X:%02X] does not match with predefined [%02X:%02X:%02X:%02X:%02X:%02X]\n",
+                properties.btaddr[0], properties.btaddr[1], properties.btaddr[2],
+                properties.btaddr[3], properties.btaddr[4], properties.btaddr[5],
+                CONTROLLER_ADDR[0], CONTROLLER_ADDR[1], CONTROLLER_ADDR[2],
+                CONTROLLER_ADDR[3], CONTROLLER_ADDR[4], CONTROLLER_ADDR[5]);
+            #endif
+            ctl->disconnect(); 
+            return;
+          }
+        }
         myControllers = ctl;
         foundEmptySlot = true;
     }
